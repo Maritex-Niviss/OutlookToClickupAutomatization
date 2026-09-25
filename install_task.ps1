@@ -1,9 +1,14 @@
-﻿# Rejestruje (lub usuwa z -Uninstall) zadanie Harmonogramu zadań uruchamiające
-# skrypt przy logowaniu bieżącego użytkownika, bez okna konsoli.
-param([switch]$Uninstall)
+# Rejestruje (lub usuwa z -Uninstall) zadanie Harmonogramu zadań uruchamiające skrypt
+# przy starcie komputera, niezależnie od tego, czy ktoś jest zalogowany.
+# -User: konto z dostępem do dysku sieciowego, na którym zapisano sekret (--set-secret).
+# Uruchom w PowerShell jako administrator.
+param(
+    [string]$User = "$env:USERDOMAIN\$env:USERNAME",
+    [switch]$Uninstall
+)
 
 $ErrorActionPreference = 'Stop'
-$taskName = 'ClickUp Outlook Bridge'
+$taskName = 'ClickUp Exchange Bridge'
 
 if ($Uninstall) {
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
@@ -11,21 +16,22 @@ if ($Uninstall) {
     return
 }
 
-$script = Join-Path $PSScriptRoot 'outlook_to_clickup.pyw'
+$script = Join-Path $PSScriptRoot 'exchange_to_clickup.py'
 $python = (& python -c "import sys; print(sys.executable)").Trim()
 $pythonw = Join-Path (Split-Path $python) 'pythonw.exe'
 if (-not (Test-Path $pythonw)) { throw "Nie znaleziono pythonw.exe obok $python" }
 
-$user = "$env:USERDOMAIN\$env:USERNAME"
+# Hasło konta Windows jest potrzebne, żeby zadanie miało dostęp do dysku sieciowego i Menedżera
+# poświadczeń tego konta (tryb "Uruchom niezależnie od tego, czy użytkownik jest zalogowany").
+$cred = Get-Credential -UserName $User -Message "Hasło konta, jako które ma działać skrypt"
+
 $action = New-ScheduledTaskAction -Execute $pythonw -Argument "`"$script`"" -WorkingDirectory $PSScriptRoot
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
-$trigger.Delay = 'PT1M'  # daje czas na podłączenie dysków sieciowych i start Outlooka
+$trigger = New-ScheduledTaskTrigger -AtStartup
+$trigger.Delay = 'PT1M'  # daje czas na start sieci po uruchomieniu komputera
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew `
     -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 5) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-# Limited (bez podniesionych uprawnień) - musi pasować do Outlooka, inaczej COM się nie podłączy.
-$principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
 
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings `
-    -Principal $principal -Force | Out-Null
-Write-Host "Zarejestrowano zadanie '$taskName' ($pythonw `"$script`")."
+    -User $cred.UserName -Password $cred.GetNetworkCredential().Password -RunLevel Limited -Force | Out-Null
+Write-Host "Zarejestrowano zadanie '$taskName' ($pythonw `"$script`") jako $($cred.UserName)."
 Write-Host "Uruchom teraz: Start-ScheduledTask -TaskName '$taskName'"
