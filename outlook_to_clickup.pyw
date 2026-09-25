@@ -2,8 +2,9 @@
 
 Działa w tle (pythonw.exe), co `poll_interval` sekund sprawdza nieprzeczytane
 maile w skrzynce pośredniej. Dla każdego maila:
-  1. zakłada kolejny folder "DIQ26001 - Kontrahent" na dysku sieciowym
-     jako kopię folderu szablonu (numeracja od 001 w każdym roku),
+  1. zakłada kolejny folder "<root>\\2026\\DIQ26001 - Kontrahent" na dysku sieciowym
+     jako kopię folderu szablonu (numeracja od 001 w każdym roku, folder roku
+     zakładany automatycznie),
   2. przekazuje maila (Forward) na adres Email-to-Task listy ClickUp,
      dopisując ścieżkę do folderu,
   3. oznacza maila jako przeczytanego.
@@ -85,22 +86,30 @@ def client_name(subject):
     return " ".join(name.split())[:100].rstrip(" .")
 
 
+def year_folder(root, year):
+    """Podfolder roku, np. ...\\DIQ_Internal_quote\\2026."""
+    return root / str(year)
+
+
 def next_folder_id(root, prefix, width, year):
-    """DIQ26001, DIQ26002, ... - numeracja od początku w każdym roku."""
+    """DIQ26001, DIQ26002, ... - numeracja od początku w każdym roku (w podfolderze roku)."""
     yy = f"{year % 100:02d}"
     pattern = re.compile(rf"^{re.escape(prefix)}{yy}(\d+)(?!\d)", re.IGNORECASE)
+    year_dir = year_folder(root, year)
     numbers = [
         int(m.group(1))
-        for entry in os.scandir(root)
+        for entry in (os.scandir(year_dir) if year_dir.is_dir() else ())
         if entry.is_dir() and (m := pattern.match(entry.name))
     ]
     return f"{prefix}{yy}{max(numbers, default=0) + 1:0{width}d}"
 
 
 def create_next_folder(root, prefix, width, year, name):
+    year_dir = year_folder(root, year)
+    year_dir.mkdir(exist_ok=True)  # w nowym roku zakłada np. 2027
     for _ in range(20):
         folder_id = next_folder_id(root, prefix, width, year)
-        path = root / (f"{folder_id} - {name}" if name else folder_id)
+        path = year_dir / (f"{folder_id} - {name}" if name else folder_id)
         try:
             path.mkdir()
             return path
@@ -234,7 +243,7 @@ def process_mail(cfg, mail, state):
         pr_dir = create_next_folder(
             cfg.docs_root, cfg.prefix, cfg.number_width, mail.ReceivedTime.year, name
         )
-        entry = state[entry_id] = {"pr": pr_dir.name, "sent": False}
+        entry = state[entry_id] = {"pr": str(pr_dir.relative_to(cfg.docs_root)), "sent": False}
         save_state(state)
 
     fill_from_template(cfg.template, pr_dir)
@@ -298,7 +307,8 @@ def check(cfg):
     print(f"Szablon:        {cfg.template} -> {'OK' if cfg.template.is_dir() else 'BRAK FOLDERU'}")
     if cfg.docs_root.is_dir():
         folder_id = next_folder_id(cfg.docs_root, cfg.prefix, cfg.number_width, time.localtime().tm_year)
-        print(f"Dysk:           {cfg.docs_root} -> OK, następny folder: {folder_id} - <kontrahent>")
+        year_dir = year_folder(cfg.docs_root, time.localtime().tm_year)
+        print(f"Dysk:           {cfg.docs_root} -> OK, następny folder: {year_dir}\\{folder_id} - <kontrahent>")
     else:
         print(f"Dysk:           {cfg.docs_root} -> NIEDOSTĘPNY")
     outlook = get_outlook()
