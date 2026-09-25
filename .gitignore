@@ -1,2 +1,3 @@
 TESTS/
 config.ini
+/__pycache__/
