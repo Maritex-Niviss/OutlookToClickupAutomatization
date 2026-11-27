@@ -1,4 +1,4 @@
-# Rejestruje (lub usuwa z -Uninstall) zadanie Harmonogramu zadań uruchamiające skrypt
+﻿# Rejestruje (lub usuwa z -Uninstall) zadanie Harmonogramu zadań uruchamiające skrypt
 # przy starcie komputera, niezależnie od tego, czy ktoś jest zalogowany.
 # -User: konto z dostępem do dysku sieciowego, na którym zapisano sekret (--set-secret).
 # Uruchom w PowerShell jako administrator.
